@@ -71,8 +71,9 @@ class AadhaarAddressExtractor:
     def clean_address_line(self, line):
         # Noise words to remove
         noise_words = [
-            r'\bia\b', r'\bees\b', r'\-\b', r'\bee\b', r'\bos\b',
-            r'\bpenraseohanaunee\b', r'\ba\b', r'\- o\b'
+            r'\beee\b', r'\bsivas\b', r'\.aa\b', r'\bes\b', r'\be\b',
+            r'\bges\b', r'\bnre\b', r'\berasers\b', r'\bsats\b',
+            r'\brees\b', r'\bspee\b'
         ]
         patterns_to_remove = [
             r'unique identification.*',
@@ -91,9 +92,9 @@ class AadhaarAddressExtractor:
             cleaned = re.sub(pattern, ' ', cleaned, flags=re.IGNORECASE)
         
         # Fix OCR errors for relationship keywords
-        cleaned = re.sub(r'([ISsDdWwCc])\s*[/]\s*([Oo])\b', r'\1/\2', cleaned)
+        cleaned = re.sub(r'(\b[SsDdWwCc])/([Oo])\b', r'\1/\2', cleaned)
         
-        # Remove extra spaces and invalid characters
+        # Remove extra spaces and invalid characters, but keep original case
         cleaned = re.sub(r'[^a-zA-Z0-9\s\-,./()]', ' ', cleaned)
         cleaned = re.sub(r'\s+', ' ', cleaned).strip()
         
@@ -103,45 +104,12 @@ class AadhaarAddressExtractor:
             
         return cleaned
 
-    def format_address(self, address_lines):
-        # Ensure space after S/O, D/O, W/O, C/O and capitalize first letter of each word
-        formatted = []
-        for line in address_lines:
-            if re.search(r'^(S|D|W|C)/O', line, re.IGNORECASE):
-                parts = re.split(r'\s+', line)
-                formatted_line = ' '.join(part.capitalize() for part in parts)
-                formatted.append(formatted_line)
-            else:
-                # Split on commas and capitalize each word
-                parts = re.split(r',+', line)
-                for part in parts:
-                    words = re.split(r'\s+', part.strip())
-                    formatted_part = ' '.join(word.capitalize() for word in words if word)
-                    if formatted_part:
-                        formatted.append(formatted_part)
-        
-        # Join with commas, ensuring no extra spaces
-        full_address = ', '.join(formatted)
-        full_address = re.sub(r'\s+', ' ', full_address).strip()
-        full_address = re.sub(r',+', ',', full_address).strip(',')
-        
-        # Move PIN code to the end
-        pin_match = re.search(self.pin_code_pattern, full_address)
-        if pin_match:
-            pin = pin_match.group(0)
-            full_address = re.sub(self.pin_code_pattern, '', full_address).strip()
-            full_address = re.sub(r'\s+', ' ', full_address).strip()
-            full_address = re.sub(r',+', ',', full_address).strip(',')
-            full_address = f"{full_address}, {pin}"
-        
-        return full_address
-
     def extract_address(self, text):
         lines = [line.strip() for line in text.split('\n') if line.strip()]
         address_lines = []
         found_start = False
         
-        address_starters = [r'[ISsDdWwCc]/O']
+        address_starters = [r'[Ss]/[Oo]', r'[Dd]/[Oo]', r'[Ww]/[Oo]', r'[Cc]/[Oo]']
         indian_states = [
             'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
             'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka',
@@ -180,7 +148,22 @@ class AadhaarAddressExtractor:
                 break
         
         if address_lines:
-            return self.format_address(address_lines)
+            full_address = ', '.join(address_lines)
+            full_address = re.sub(r'\s+', ' ', full_address).strip()
+            full_address = re.sub(r',+', ',', full_address).strip(',')
+            
+            pin_match = re.search(self.pin_code_pattern, full_address)
+            if pin_match:
+                pin = pin_match.group(0)
+                full_address = re.sub(self.pin_code_pattern, '', full_address).strip()
+                full_address = re.sub(r'\s+', ' ', full_address).strip()
+                full_address = re.sub(r',+', ',', full_address).strip(',')
+                full_address = f"{full_address}, {pin}"
+            
+            if self.debug:
+                print(f"Address lines considered: {address_lines}")
+            
+            return full_address if len(full_address) > 15 else None
         
         return None
 
