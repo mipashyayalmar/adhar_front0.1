@@ -1,0 +1,5 @@
+pytesseract
+pillow
+pdf2image
+python-dateutil
+opencv-python
