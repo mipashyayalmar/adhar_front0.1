@@ -68,14 +68,15 @@ class AadhaarAddressExtractor:
             
         return match_count >= 3
 
+
     def clean_address_line(self, line):
+        # Enhanced noise words and patterns
         noise_words = [
             r'\bIAddress\b', r'\bAddress[-:]\s*', r'\beee\b', r'\bsivas\b', 
             r'\.aa\b', r'\bes\b', r'\be\b', r'\bges\b', r'\bnre\b',
             r'\berasers\b', r'\bsats\b', r'\brees\b', r'\bspee\b',
             r'\ba\b', r'\bo\b', r'\bos\b', r'\bia\b', r'\bPENRASeohanaunee\b',
-            r'\bees\b', r'\bee\b', r'\ -', r'\_', r'\bI\b',r'\bIAddress',r'\bIAddress\b',
-            r'\bie\b',r'\bbddress',r'\bBee',r'\bSees',
+            r'\bees\b', r'\bee\b', r'\ -', r'\_', r'\bI\b',r'\bIAddress\b', r'\bIAddress[-:]\s*', r'\bIAddress\s*', r'\bIAddress\b'
         ]
         
         patterns_to_remove = [
@@ -87,17 +88,18 @@ class AadhaarAddressExtractor:
             r'\b\d{4}\s?\d{4}\s?\d{4}\b',
             r'\d{2}-\d{2}-\d{4}',
             r'\d{2}:\d{2}',
-            r'^\W+|\W+$'
+            r'^\W+|\W+$'  # Remove leading/trailing non-word chars
         ] + noise_words
 
+        # Initial aggressive cleaning
         cleaned = line
-        # Replace "2shehasashtsa" with "Maharashtra"
-        cleaned = re.sub(r'\b2shehasashtsa\b', 'Maharashtra', cleaned, flags=re.IGNORECASE)
         for pattern in patterns_to_remove:
             cleaned = re.sub(pattern, ' ', cleaned, flags=re.IGNORECASE)
         
+        # Standardize relationship indicators with proper spacing
         cleaned = re.sub(r'(\b[SsDdWwCc])/([Oo])\b', r' \1/O ', cleaned)
         
+        # Split camelCase names but preserve all-caps words
         def split_name(match):
             word = match.group()
             if word.isupper() or '/' in word:
@@ -106,25 +108,41 @@ class AadhaarAddressExtractor:
         
         cleaned = re.sub(r'\b[A-Za-z][a-z]*[A-Z][A-Za-z]*\b', split_name, cleaned)
         
+        # Process address components
         words = []
         for word in cleaned.split():
+            # Remove any remaining single character words except S/O components
             if len(word) == 1 and not word.isdigit() and word not in ['S', 'D', 'W', 'C', 'O']:
                 continue
+            
+            # Handle hyphenated pincodes
             if re.match(r'^\d+-\d+$', word):
                 word = word.replace('-', ' ')
+            
             words.append(word)
         
         cleaned = ' '.join(words)
+        
+        # Final cleaning and formatting
         cleaned = re.sub(r'[^a-zA-Z0-9\s\-,./()]', ' ', cleaned)
         cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        
+        # Ensure proper spacing after commas
         cleaned = re.sub(r',(\S)', r', \1', cleaned)
-        cleaned = re.sub(r',+', ',', cleaned)
+        
+        # Ensure consistent comma spacing and fix S/O cases
+        cleaned = re.sub(r',(\S)', r', \1', cleaned)
         cleaned = re.sub(r'(\b[SsDdWwCc]/O)(\S)', r'\1 \2', cleaned)
         
+
+        
+        # Validate line
         if len(cleaned) < 10 or not re.search(r'[a-zA-Z]{3,}', cleaned):
             return None
             
         return cleaned
+
+
 
     def extract_address(self, text):
         lines = [line.strip() for line in text.split('\n') if line.strip()]
@@ -151,8 +169,6 @@ class AadhaarAddressExtractor:
             r'\d{4}\s?\d{4}\s?\d{4}'
         ]
         
-        back_side_detected = self.is_back_side(text)
-        
         for i, line in enumerate(lines):
             if any(re.search(pat, line, re.IGNORECASE) for pat in address_starters):
                 found_start = True
@@ -170,18 +186,6 @@ class AadhaarAddressExtractor:
                             re.search(self.pin_code_pattern, cleaned_next)):
                             break
                 break
-            elif not back_side_detected and re.search(r'address|Lexminagar|Wadi|Solapur', line, re.IGNORECASE):
-                cleaned = self.clean_address_line(line)
-                if cleaned and not any(re.search(pat, cleaned, re.IGNORECASE) for pat in exclude_patterns):
-                    address_lines.append(cleaned)
-                    for next_line in lines[i+1:]:
-                        cleaned_next = self.clean_address_line(next_line)
-                        if cleaned_next and (re.search(self.pin_code_pattern, cleaned_next) or
-                                            any(state in cleaned_next for state in indian_states) or
-                                            re.search(r'Solapur|Wadi', cleaned_next, re.IGNORECASE)):
-                            address_lines.append(cleaned_next)
-                            break
-                    break
         
         if address_lines:
             full_address = ', '.join(address_lines)
@@ -211,25 +215,20 @@ class AadhaarAddressExtractor:
                 
             text = self.extract_text(processed_img)
             
-            if self.is_back_side(text):
-                address = self.extract_address(text)
-                if address:
-                    if self.debug:
-                        print("Address extracted successfully from back side.")
-                    return {"address": address, "formatted_output": f"Address: {address}"}
+            if not self.is_back_side(text):
                 if self.debug:
-                    print("No address could be extracted from back side.")
+                    print("Back side not detected.")
+                return {"address": None, "formatted_output": "Back side not detected"}
             
-            if self.debug:
-                print("Back side not detected or no address found. Attempting fallback extraction.")
             address = self.extract_address(text)
+            
             if address:
                 if self.debug:
-                    print("Address extracted successfully using fallback method.")
+                    print("Address extracted successfully.")
                 return {"address": address, "formatted_output": f"Address: {address}"}
             
             if self.debug:
-                print("No address could be extracted after fallback attempt.")
+                print("No address could be extracted.")
             return {"address": None, "formatted_output": "No address extracted"}
         
         except Exception as e:
